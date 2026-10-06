@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#f4f8f5" />
+  <title>KANT — Caderno de Erros</title>
+  <link rel="icon" href="assets/kant-symbol.png" type="image/png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="wrap" id="appWrap">
+    <header class="kant-header">
+      <div class="kant-brand" aria-label="KANT Caderno de Erros">
+        <div class="kant-brand-symbol"><img src="assets/kant-symbol.png" alt="" /></div>
+        <div class="brand-copy">
+          <div class="kant-wordmark">KANT</div>
+          <small>Caderno de Erros</small>
+        </div>
+      </div>
+
+      <nav class="kant-nav" aria-label="Navegação principal">
+        <button class="nav-link active" data-view="dashboard" type="button">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M4.5 10.5 12 4l7.5 6.5"/><path d="M7.5 10v8h9v-8"/></svg></span><span>Início</span>
+        </button>
+        <button class="nav-link" data-view="errors" type="button">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4.5h12v15H6z"/><path d="M9 8h6M9 12h6M9 16h4"/></svg></span><span>Meus erros</span>
+        </button>
+        <button class="nav-link" data-view="reviews" type="button">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M18.5 8.5A7 7 0 1 0 19 15"/><path d="M18.5 4.5v4h-4"/></svg></span><span>Revisões</span>
+        </button>
+        <button class="nav-link" data-view="history" type="button">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="8"/></svg></span><span>Histórico</span>
+        </button>
+        <button class="nav-link" data-view="calendar" type="button">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M5 6.5h14v13H5z"/><path d="M8 4v5M16 4v5M5 10h14"/></svg></span><span>Calendário</span>
+        </button>
+      </nav>
+
+      <div class="kant-account-cluster">
+        <div class="metric-chip">
+          <span class="metric-dot review"></span>
+          <div><small>REVISAR HOJE</small><b id="headerDue">0</b></div>
+        </div>
+        <div class="metric-chip">
+          <span class="metric-dot mastery"></span>
+          <div><small>DOMÍNIO</small><b id="headerMastery">0%</b></div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="view active" id="view-dashboard">
+        <section class="dashboard-hero">
+          <div class="hero-copy">
+            <span class="section-kicker">CADERNO DE ERROS</span>
+            <h1>Transforme erro em acerto.</h1>
+            <p>Registre o que te fez perder a questão, revise no momento certo e acompanhe os padrões que mais custam pontos.</p>
+            <div class="hero-actions">
+              <button class="btn primary" id="newErrorBtn" type="button">+ Registrar erro</button>
+              <button class="btn secondary" data-go="reviews" type="button">Abrir revisões</button>
+            </div>
+          </div>
+          <div class="hero-summary-card">
+            <div class="summary-top"><span>Visão rápida</span><small id="todayLabel"></small></div>
+            <div class="summary-grid">
+              <div><small>ERROS ATIVOS</small><strong id="statActive">0</strong></div>
+              <div><small>ALTA PRIORIDADE</small><strong id="statHigh">0</strong></div>
+              <div><small>REINCIDENTES</small><strong id="statRepeat">0</strong></div>
+              <div><small>DOMINADOS</small><strong id="statDominated">0</strong></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="quick-grid">
+          <article class="panel review-panel">
+            <div class="panel-head">
+              <div><span class="panel-kicker">PARA HOJE</span><h2>Fila de revisão</h2></div>
+              <button class="text-link" data-go="reviews" type="button">Ver todas</button>
+            </div>
+            <div id="dueList" class="stack empty-state">Nenhuma revisão pendente.</div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head"><div><span class="panel-kicker">PADRÃO ATUAL</span><h2>Erros por tipo</h2></div></div>
+            <div id="typeSnapshot" class="type-snapshot empty-state">Ainda não há dados.</div>
+          </article>
+        </section>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div><span class="panel-kicker">RECENTES</span><h2>Últimos registros</h2></div>
+            <button class="text-link" data-go="errors" type="button">Abrir caderno</button>
+          </div>
+          <div id="recentErrors" class="empty-state">Nenhum erro registrado.</div>
+        </article>
+      </section>
+
+      <section class="view" id="view-errors">
+        <div class="view-heading">
+          <div><span class="section-kicker">MEUS ERROS</span><h1>Caderno</h1><p>Os registros são separados pelo motivo do erro para ficar mais fácil enxergar o padrão.</p></div>
+          <button class="btn primary" id="newErrorBtn2" type="button">+ Registrar erro</button>
+        </div>
+
+        <article class="filter-card">
+          <div class="filters-row">
+            <label class="search-field"><svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg><input id="searchInput" type="search" placeholder="Buscar conteúdo, prova ou anotação" /></label>
+            <select id="filterArea"><option value="">Todas as áreas</option><option>Matemática</option><option>Ciências da Natureza</option><option>Linguagens</option><option>Ciências Humanas</option></select>
+            <select id="filterPriority"><option value="">Toda prioridade</option><option value="alta">Alta prioridade</option><option value="media">Média prioridade</option><option value="baixa">Baixa prioridade</option></select>
+            <select id="filterStatus"><option value="">Todo status</option><option value="novo">Novo</option><option value="revisando">Revisando</option><option value="dominado">Dominado</option></select>
+          </div>
+          <div class="type-tabs" id="typeTabs"></div>
+        </article>
+
+        <div class="errors-toolbar"><span id="errorCount">0 registros</span><button class="text-link" id="clearTypeFilter" type="button">Mostrar todos os tipos</button></div>
+        <div id="errorsGroups" class="error-groups empty-state">Nenhum erro registrado.</div>
+      </section>
+
+      <section class="view" id="view-reviews">
+        <div class="view-heading">
+          <div><span class="section-kicker">REVISÕES</span><h1>Revisar sem reler passivamente.</h1><p>Primeiro tente recuperar o raciocínio. Só depois revele sua anotação.</p></div>
+          <div class="view-metric"><small>PENDENTES</small><strong id="reviewPending">0</strong></div>
+        </div>
+        <div class="review-filter-row">
+          <button class="seg-btn active" data-review-filter="due" type="button">Para hoje</button>
+          <button class="seg-btn" data-review-filter="upcoming" type="button">Próximas</button>
+          <button class="seg-btn" data-review-filter="all" type="button">Todas</button>
+        </div>
+        <div id="reviewList" class="review-grid empty-state">Nenhuma revisão programada.</div>
+      </section>
+
+      <section class="view" id="view-history">
+        <div class="view-heading">
+          <div><span class="section-kicker">HISTÓRICO</span><h1>Revisões passadas</h1><p>Volte a qualquer revisão, refaça o teste ou corrija o registro feito naquele dia.</p></div>
+          <div class="view-metric"><small>REVISÕES FEITAS</small><strong id="historyCount">0</strong></div>
+        </div>
+        <article class="filter-card compact-filter">
+          <div class="filters-row history-filters">
+            <label class="search-field"><svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg><input id="historySearch" type="search" placeholder="Buscar no histórico" /></label>
+            <select id="historyArea"><option value="">Todas as áreas</option><option>Matemática</option><option>Ciências da Natureza</option><option>Linguagens</option><option>Ciências Humanas</option></select>
+          </div>
+        </article>
+        <div id="historyList" class="history-list empty-state">Nenhuma revisão realizada ainda.</div>
+      </section>
+
+      <section class="view" id="view-calendar">
+        <div class="view-heading">
+          <div><span class="section-kicker">CALENDÁRIO</span><h1>Agenda de revisão</h1><p>Visualize os erros que voltam para a fila ao longo do mês.</p></div>
+        </div>
+        <article class="panel calendar-panel">
+          <div class="calendar-toolbar">
+            <button class="icon-button" id="prevMonth" type="button" aria-label="Mês anterior">←</button>
+            <h2 id="calendarTitle"></h2>
+            <button class="icon-button" id="nextMonth" type="button" aria-label="Próximo mês">→</button>
+          </div>
+          <div class="calendar-weekdays"><span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span></div>
+          <div id="calendarGrid" class="calendar-grid"></div>
+        </article>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>KANT — Caderno de Erros</span><span>Dados salvos neste navegador.</span>
+      <div><button class="footer-btn" id="exportBtn" type="button">Exportar backup</button><label class="footer-btn file-label">Importar backup<input id="importInput" hidden type="file" accept="application/json" /></label></div>
+    </footer>
+  </div>
+
+  <dialog id="errorDialog">
+    <form method="dialog" id="errorForm" class="modal-card">
+      <div class="modal-head"><div><span class="panel-kicker">REGISTRO</span><h2 id="formTitle">Novo erro</h2></div><button type="button" class="close-btn" id="closeDialog">×</button></div>
+      <input type="hidden" id="editId" />
+
+      <div class="form-grid two">
+        <label>Origem<select id="source" required><option>Simulado</option><option>Lista de exercícios</option><option>Questão avulsa</option><option>Prova antiga</option><option>Revisão</option></select></label>
+        <label>Prova / lista<input id="sourceName" placeholder="Ex.: ENEM 2023 — Natureza" /></label>
+      </div>
+
+      <div class="form-grid three area-grid">
+        <label>Área<select id="area" required><option value="">Selecione</option><option>Matemática</option><option>Ciências da Natureza</option><option>Linguagens</option><option>Ciências Humanas</option></select></label>
+        <label id="subjectField" class="hidden">Componente<select id="subject"><option value="">Selecione</option></select></label>
+        <label>Questão<input id="questionNumber" placeholder="Ex.: 71" /></label>
+      </div>
+      <div id="areaHint" class="form-hint">Em Matemática e Linguagens, a própria área já identifica o componente.</div>
+
+      <label>Conteúdo / microconteúdo<input id="content" placeholder="Ex.: Eletroquímica — ânodo e cátodo" required /></label>
+
+      <div class="form-grid three">
+        <label>Tipo de erro<select id="errorType" required><option value="conteudo">Conteúdo</option><option value="aplicacao">Aplicação</option><option value="interpretacao">Interpretação</option><option value="calculo">Cálculo</option><option value="estrategia">Estratégia</option><option value="desatencao">Desatenção</option><option value="chute">Acerto no chute / dúvida</option></select></label>
+        <label>Prioridade<select id="priority" required><option value="alta">Alta — ponto recuperável</option><option value="media">Média — lacuna corrigível</option><option value="baixa">Baixa — baixo retorno</option></select></label>
+        <label>Dificuldade<select id="difficulty"><option>Fácil</option><option selected>Média</option><option>Difícil</option></select></label>
+      </div>
+
+      <div class="form-grid two">
+        <label>Sua resposta<input id="myAnswer" placeholder="Ex.: B" /></label>
+        <label>Resposta correta<input id="correctAnswer" placeholder="Ex.: D" /></label>
+      </div>
+
+      <label>Por que eu errei?<textarea id="why" rows="3" placeholder="Ex.: confundi corrente com potência e não conferi a unidade."></textarea></label>
+      <label>O que eu precisava saber ou fazer?<textarea id="lesson" rows="3" placeholder="Regra, conceito, método ou pista que teria levado ao acerto."></textarea></label>
+      <label>Resumo de bolso<textarea id="flashNote" rows="2" placeholder="Uma anotação curta para revisar depois."></textarea></label>
+
+      <div class="form-grid three">
+        <label>Tempo gasto (min)<input id="timeSpent" type="number" min="0" step="1" /></label>
+        <label>Reincidências<input id="repeatCount" type="number" min="0" step="1" value="0" /></label>
+        <label>Status<select id="status"><option value="novo">Novo</option><option value="revisando">Revisando</option><option value="dominado">Dominado</option></select></label>
+      </div>
+
+      <label class="check-row"><input id="wouldMissTomorrow" type="checkbox" checked /><span>Eu provavelmente erraria essa questão novamente amanhã.</span></label>
+
+      <div class="modal-actions"><button type="button" class="btn danger hidden" id="deleteBtn">Excluir</button><span></span><button type="button" class="btn secondary" id="cancelBtn">Cancelar</button><button type="submit" class="btn primary">Salvar erro</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="reviewDialog">
+    <form method="dialog" id="reviewForm" class="modal-card review-modal">
+      <div class="modal-head"><div><span class="panel-kicker">REVISÃO ATIVA</span><h2 id="reviewTitle">Revisar erro</h2></div><button type="button" class="close-btn" id="closeReview">×</button></div>
+      <input type="hidden" id="reviewId" />
+      <div id="reviewSummary" class="review-summary"></div>
+      <label>Sem olhar sua anotação, explique como resolveria hoje<textarea id="reviewRecall" rows="5" placeholder="Recupere o raciocínio antes de revelar a resposta."></textarea></label>
+      <button type="button" class="reveal-btn" id="showLessonBtn">Revelar minha anotação</button>
+      <div id="lessonReveal" class="lesson-reveal hidden"></div>
+      <label>Como foi?<select id="reviewResult"><option value="dominei">Consegui sozinho</option><option value="parcial">Consegui parcialmente</option><option value="nao">Ainda erraria</option></select></label>
+      <div class="modal-actions simple"><button type="button" class="btn secondary" id="cancelReview">Cancelar</button><button type="submit" class="btn primary">Concluir revisão</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="historyEditDialog">
+    <form method="dialog" id="historyEditForm" class="modal-card small-modal">
+      <div class="modal-head"><div><span class="panel-kicker">REVISÃO PASSADA</span><h2>Corrigir registro</h2></div><button type="button" class="close-btn" id="closeHistoryEdit">×</button></div>
+      <input type="hidden" id="historyErrorId" /><input type="hidden" id="historyReviewIndex" />
+      <label>Data<input type="date" id="historyReviewDate" required /></label>
+      <label>Resultado<select id="historyReviewResult"><option value="dominei">Consegui sozinho</option><option value="parcial">Consegui parcialmente</option><option value="nao">Ainda erraria</option></select></label>
+      <label>O que você lembrou / refez<textarea id="historyReviewRecall" rows="5"></textarea></label>
+      <div class="modal-actions simple"><button type="button" class="btn secondary" id="cancelHistoryEdit">Cancelar</button><button type="submit" class="btn primary">Salvar alteração</button></div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
