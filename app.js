@@ -1,10 +1,11 @@
 const STORAGE_KEY = 'cadernoErrosENEM_v1';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
-let data = loadData();
 let calendarCursor = new Date();
 let activeTypeFilter = '';
 let activeReviewFilter = 'due';
+let activeContentArea = 'Matemática';
+let activeContentTopicId = null;
 
 const TYPE_LABELS = {
   conteudo:'Conteúdo', aplicacao:'Aplicação', interpretacao:'Interpretação', calculo:'Cálculo',
@@ -14,13 +15,32 @@ const SUBJECTS = {
   'Ciências da Natureza':['Biologia','Física','Química'],
   'Ciências Humanas':['História','Geografia','Filosofia','Sociologia']
 };
+const CONTENT_AREAS = [
+  {name:'Matemática', short:'Matemática'},
+  {name:'Ciências da Natureza', short:'Natureza'},
+  {name:'Linguagens', short:'Linguagens'},
+  {name:'Redação', short:'Redação'},
+  {name:'Ciências Humanas', short:'Humanas'}
+];
+const DEFAULT_CONTENT_TOPICS = {
+  'Matemática':['Razão e proporção','Porcentagem e juros','Funções','Geometria plana','Geometria espacial','Estatística e probabilidade','Análise combinatória','Geometria analítica'],
+  'Ciências da Natureza':['Eletroquímica','Estequiometria','Soluções','Química orgânica','Mecânica','Eletrodinâmica','Ondulatória','Termologia','Ecologia','Genética','Fisiologia','Citologia'],
+  'Linguagens':['Interpretação de texto','Gêneros textuais','Funções da linguagem','Literatura','Gramática em contexto','Artes','Língua estrangeira'],
+  'Redação':['Repertório','Argumentação','Competência 1','Competência 2','Competência 3','Competência 4','Competência 5','Proposta de intervenção'],
+  'Ciências Humanas':['História do Brasil','História Geral','Geografia física','Geografia humana','Geopolítica','Filosofia','Sociologia']
+};
+function defaultContentFolders(){
+  const now=Date.now();
+  return Object.entries(DEFAULT_CONTENT_TOPICS).flatMap(([area,titles],ai)=>titles.map((title,i)=>({id:`seed-${ai}-${i}`,area,title,notes:[],createdAt:now+i})));
+}
+let data = loadData();
 
 function loadData(){
   try{
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if(parsed && Array.isArray(parsed.errors)) return normalizeData(parsed);
   }catch{}
-  return {errors:[]};
+  return {errors:[],contentFolders:defaultContentFolders()};
 }
 function normalizeData(obj){
   obj.errors = (obj.errors || []).map(e => ({
@@ -28,6 +48,8 @@ function normalizeData(obj){
     status:'novo', wouldMissTomorrow:true, ...e,
     subject: normalizedSubject(e)
   }));
+  if(!Array.isArray(obj.contentFolders)) obj.contentFolders=defaultContentFolders();
+  obj.contentFolders=obj.contentFolders.map(f=>({id:f.id||uid(),area:f.area||'Matemática',title:f.title||'Sem título',createdAt:f.createdAt||Date.now(),notes:(f.notes||[]).map(n=>({id:n.id||uid(),title:n.title||'',text:n.text||'',createdAt:n.createdAt||Date.now(),updatedAt:n.updatedAt||n.createdAt||Date.now()}))}));
   return obj;
 }
 function normalizedSubject(e){
@@ -35,7 +57,7 @@ function normalizedSubject(e){
   if(e.area === 'Linguagens') return 'Linguagens';
   return e.subject || '';
 }
-function saveData(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); renderAll(); }
+function saveData(){ try{localStorage.setItem(STORAGE_KEY, JSON.stringify(data));}catch{} renderAll(); }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function parseLocal(s){ if(!s) return new Date(); const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
 function isoLocal(d=new Date()){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
@@ -62,7 +84,7 @@ function typeCounts(arr=data.errors){
 }
 function areaMeta(e){ return e.area + ((e.area==='Ciências da Natureza'||e.area==='Ciências Humanas') && e.subject ? ` · ${e.subject}`:''); }
 
-function renderAll(){ renderStats(); renderDue(); renderRecent(); renderTypeSnapshot(); renderTypeTabs(); renderErrors(); renderReviews(); renderHistory(); renderCalendar(); }
+function renderAll(){ renderStats(); renderDue(); renderRecent(); renderTypeSnapshot(); renderTypeTabs(); renderErrors(); renderContents(); renderReviews(); renderHistory(); renderCalendar(); }
 function renderStats(){
   const errors=data.errors;
   const dominated=errors.filter(e=>e.status==='dominado').length;
@@ -74,6 +96,7 @@ function renderStats(){
   $('#statRepeat').textContent=errors.filter(e=>Number(e.repeatCount)>0&&e.status!=='dominado').length; $('#statDominated').textContent=dominated;
   $('#reviewPending').textContent=errors.filter(e=>nextReview(e)).length;
   $('#historyCount').textContent=errors.reduce((n,e)=>n+(e.reviews?.length||0),0);
+  $('#contentNotesCount').textContent=(data.contentFolders||[]).reduce((n,f)=>n+(f.notes?.length||0),0);
 }
 function renderDue(){
   const arr=data.errors.filter(isDue).sort((a,b)=>nextReview(a).localeCompare(nextReview(b))).slice(0,5);
@@ -108,8 +131,41 @@ function renderErrors(){
   if(!arr.length){ box.className='error-groups empty-state'; box.textContent='Nenhum erro encontrado com esses filtros.'; return; }
   box.className='error-groups'; const order=Object.keys(TYPE_LABELS);
   const groups=order.map(type=>[type,arr.filter(e=>e.errorType===type)]).filter(([,items])=>items.length);
-  box.innerHTML=groups.map(([type,items])=>`<section class="error-group"><div class="error-group-head"><h2>${labelType(type)}</h2><span>${items.length} registro${items.length===1?'':'s'}</span></div><table class="error-table"><thead><tr><th>Conteúdo</th><th>Área</th><th>Prioridade</th><th>Status</th><th>Próxima revisão</th></tr></thead><tbody>${items.map(e=>`<tr onclick="openEdit('${e.id}')"><td class="cell-title"><strong>${esc(e.content)}</strong><small>${esc(e.sourceName||e.source)}${e.questionNumber?' · Q'+esc(e.questionNumber):''}</small></td><td>${esc(areaMeta(e))}</td><td><span class="badge ${e.priority}">${e.priority}</span></td><td><span class="status-pill ${e.status}">${e.status}</span></td><td>${nextReview(e)?fmtDate(nextReview(e)):'—'}</td></tr>`).join('')}</tbody></table></section>`).join('');
+  box.innerHTML=groups.map(([type,items])=>`<section class="error-group"><div class="error-group-head"><h2>${labelType(type)}</h2><span>${items.length} registro${items.length===1?'':'s'}</span></div><table class="error-table"><thead><tr><th>Conteúdo</th><th>Área</th><th>Prioridade</th><th>Status</th><th>Próxima revisão</th><th></th></tr></thead><tbody>${items.map(e=>`<tr onclick="openEdit('${e.id}')"><td class="cell-title"><strong>${esc(e.content)}</strong><small>${esc(e.sourceName||e.source)}${e.questionNumber?' · Q'+esc(e.questionNumber):''}</small></td><td>${esc(areaMeta(e))}</td><td><span class="badge ${e.priority}">${e.priority}</span></td><td><span class="status-pill ${e.status}">${e.status}</span></td><td>${nextReview(e)?fmtDate(nextReview(e)):'—'}</td><td class="row-actions"><button class="trash-btn" type="button" title="Excluir erro" aria-label="Excluir erro" onclick="event.stopPropagation();deleteErrorById('${e.id}')"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V4.8h6V7M8 10v7M12 10v7M16 10v7M7 7l1 13h8l1-13"/></svg></button></td></tr>`).join('')}</tbody></table></section>`).join('');
 }
+
+function renderContents(){
+  const areaBox=$('#contentAreaFolders');
+  const counts=Object.fromEntries(CONTENT_AREAS.map(a=>[a.name,0]));
+  (data.contentFolders||[]).forEach(f=>{counts[f.area]=(counts[f.area]||0)+(f.notes?.length||0)});
+  areaBox.innerHTML=CONTENT_AREAS.map(a=>`<button type="button" class="content-area-card ${activeContentArea===a.name?'active':''}" onclick="selectContentArea('${a.name.replace(/'/g,"\'")}')"><span class="folder-shape"><svg viewBox="0 0 24 24" fill="none"><path d="M3.8 7h6l1.6 2h8.8v9.2a2 2 0 0 1-2 2H5.8a2 2 0 0 1-2-2z"/><path d="M3.8 10h16.4"/></svg></span><span><strong>${esc(a.short)}</strong><small>${counts[a.name]||0} nota${counts[a.name]===1?'':'s'}</small></span></button>`).join('');
+
+  const workspace=$('#contentWorkspace');
+  const topic=activeContentTopicId ? data.contentFolders.find(f=>f.id===activeContentTopicId&&f.area===activeContentArea) : null;
+  if(topic){
+    const notes=[...(topic.notes||[])].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+    workspace.innerHTML=`<div class="content-breadcrumb"><button type="button" onclick="backToContentFolders()">${esc(activeContentArea)}</button><span>›</span><strong>${esc(topic.title)}</strong></div><div class="content-topic-head"><div><span class="panel-kicker">SUBTEMA</span><h2>${esc(topic.title)}</h2><p>${notes.length} nota${notes.length===1?'':'s'} salva${notes.length===1?'':'s'}</p></div><div class="content-head-actions"><button class="btn secondary compact-btn" type="button" onclick="editTopic('${topic.id}')">Renomear</button><button class="btn primary compact-btn" type="button" onclick="openNote('${topic.id}')">+ Nova nota</button></div></div>${notes.length?`<div class="notes-grid">${notes.map(n=>`<article class="note-card" onclick="openNote('${topic.id}','${n.id}')"><div class="note-card-top"><strong>${esc(n.title||'Nota')}</strong><span>${new Date(n.updatedAt||n.createdAt).toLocaleDateString('pt-BR')}</span></div><p>${esc(n.text).replace(/\n/g,'<br>')}</p><div class="note-card-foot"><span>Editar nota</span><span>›</span></div></article>`).join('')}</div>`:`<div class="content-empty"><div class="empty-folder-icon">✎</div><h3>Nenhuma nota ainda.</h3><p>Adicione uma regra, fórmula, associação ou lembrete curto que você queira reencontrar depois.</p><button class="btn primary" type="button" onclick="openNote('${topic.id}')">+ Adicionar primeira nota</button></div>`}<div class="topic-danger-zone"><button class="text-link danger-link" type="button" onclick="deleteTopic('${topic.id}')">Excluir esta subpasta</button></div>`;
+    return;
+  }
+  activeContentTopicId=null;
+  const folders=(data.contentFolders||[]).filter(f=>f.area===activeContentArea).sort((a,b)=>a.title.localeCompare(b.title,'pt-BR'));
+  workspace.innerHTML=`<div class="content-topic-head"><div><span class="panel-kicker">PASTA</span><h2>${esc(activeContentArea)}</h2><p>Abra um subtema para consultar ou acrescentar notas.</p></div><button class="btn primary compact-btn" type="button" onclick="openTopicDialog()">+ Nova subpasta</button></div>${folders.length?`<div class="topic-folder-grid">${folders.map(f=>`<button class="topic-folder" type="button" onclick="openContentTopic('${f.id}')"><span class="topic-folder-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7h6l1.5 2H20v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M4 10h16"/></svg></span><span class="topic-folder-copy"><strong>${esc(f.title)}</strong><small>${f.notes?.length||0} nota${(f.notes?.length||0)===1?'':'s'}</small></span><span class="topic-arrow">›</span></button>`).join('')}</div>`:`<div class="content-empty"><div class="empty-folder-icon">＋</div><h3>Crie sua primeira subpasta.</h3><p>Use subtemas específicos, como Eletroquímica, Probabilidade ou Repertório.</p><button class="btn primary" type="button" onclick="openTopicDialog()">+ Nova subpasta</button></div>`}`;
+}
+
+window.selectContentArea=function(area){ activeContentArea=area; activeContentTopicId=null; renderContents(); };
+window.openContentTopic=function(id){ activeContentTopicId=id; renderContents(); };
+window.backToContentFolders=function(){ activeContentTopicId=null; renderContents(); };
+window.openTopicDialog=function(id=''){
+  const topic=id?data.contentFolders.find(f=>f.id===id):null;
+  $('#topicEditId').value=topic?.id||''; $('#topicAreaLabel').value=activeContentArea; $('#topicTitle').value=topic?.title||''; $('#topicDialogTitle').textContent=topic?'Renomear subpasta':'Nova subpasta'; $('#topicDialog').showModal();
+};
+window.editTopic=function(id){ openTopicDialog(id); };
+function saveTopic(ev){ ev.preventDefault(); const id=$('#topicEditId').value; const title=$('#topicTitle').value.trim(); if(!title)return; const existing=id?data.contentFolders.find(f=>f.id===id):null; if(existing) existing.title=title; else data.contentFolders.push({id:uid(),area:activeContentArea,title,notes:[],createdAt:Date.now()}); saveData(); $('#topicDialog').close(); toast(existing?'Subpasta renomeada.':'Subpasta criada.'); }
+window.deleteTopic=function(id){ const f=data.contentFolders.find(x=>x.id===id); if(!f)return; const n=f.notes?.length||0; if(confirm(`Excluir a subpasta “${f.title}”${n?` e suas ${n} nota${n===1?'':'s'}`:''}?`)){ data.contentFolders=data.contentFolders.filter(x=>x.id!==id); activeContentTopicId=null; saveData(); toast('Subpasta excluída.'); } };
+window.openNote=function(topicId,noteId=''){ const f=data.contentFolders.find(x=>x.id===topicId); if(!f)return; const n=noteId?f.notes?.find(x=>x.id===noteId):null; $('#noteTopicId').value=topicId; $('#noteEditId').value=n?.id||''; $('#noteTitle').value=n?.title||''; $('#noteText').value=n?.text||''; $('#noteDialogTitle').textContent=n?'Editar nota':'Nova nota'; $('#deleteNoteBtn').classList.toggle('hidden',!n); $('#noteDialog').showModal(); };
+function saveNote(ev){ ev.preventDefault(); const f=data.contentFolders.find(x=>x.id===$('#noteTopicId').value); if(!f)return; const id=$('#noteEditId').value; const existing=id?f.notes.find(n=>n.id===id):null; const now=Date.now(); const note={id:id||uid(),title:$('#noteTitle').value.trim(),text:$('#noteText').value.trim(),createdAt:existing?.createdAt||now,updatedAt:now}; if(existing)Object.assign(existing,note);else f.notes.push(note); saveData(); $('#noteDialog').close(); toast(existing?'Nota atualizada.':'Nota adicionada.'); }
+function deleteCurrentNote(){ const f=data.contentFolders.find(x=>x.id===$('#noteTopicId').value); const id=$('#noteEditId').value; const n=f?.notes?.find(x=>x.id===id); if(!f||!n)return; if(confirm('Excluir esta nota?')){ f.notes=f.notes.filter(x=>x.id!==id); saveData(); $('#noteDialog').close(); toast('Nota excluída.'); } }
+
 function renderReviews(){
   let arr=data.errors.filter(e=>nextReview(e)); const today=isoLocal(new Date());
   if(activeReviewFilter==='due') arr=arr.filter(isDue); else if(activeReviewFilter==='upcoming') arr=arr.filter(e=>nextReview(e)>today);
@@ -153,6 +209,7 @@ function saveForm(ev){
   if(existing) Object.assign(existing,e); else data.errors.push(e); saveData(); $('#errorDialog').close(); toast(existing?'Erro atualizado.':'Erro registrado.');
 }
 function deleteCurrent(){ const id=$('#editId').value; if(id&&confirm('Excluir este registro e todo o histórico de revisões dele?')){ data.errors=data.errors.filter(e=>e.id!==id); saveData(); $('#errorDialog').close(); toast('Registro excluído.'); } }
+window.deleteErrorById=function(id){ const e=data.errors.find(x=>x.id===id); if(!e)return; if(confirm(`Excluir o erro “${e.content}” e todo o histórico de revisões dele?`)){ data.errors=data.errors.filter(x=>x.id!==id); saveData(); toast('Registro excluído.'); } };
 
 window.openReview=function(id){
   const e=data.errors.find(x=>x.id===id); if(!e)return; $('#reviewId').value=id; $('#reviewTitle').textContent=e.content; $('#reviewRecall').value=''; $('#reviewResult').value='dominei'; $('#lessonReveal').classList.add('hidden');
@@ -175,6 +232,8 @@ $$('.nav-link').forEach(btn=>btn.addEventListener('click',()=>switchView(btn.dat
 $('#newErrorBtn').addEventListener('click',openNew); $('#newErrorBtn2').addEventListener('click',openNew); $('#closeDialog').addEventListener('click',()=>$('#errorDialog').close()); $('#cancelBtn').addEventListener('click',()=>$('#errorDialog').close()); $('#errorForm').addEventListener('submit',saveForm); $('#deleteBtn').addEventListener('click',deleteCurrent); $('#area').addEventListener('change',e=>updateSubjectField(e.target.value));
 $('#closeReview').addEventListener('click',()=>$('#reviewDialog').close()); $('#cancelReview').addEventListener('click',()=>$('#reviewDialog').close()); $('#reviewForm').addEventListener('submit',completeReview); $('#showLessonBtn').addEventListener('click',revealLesson);
 $('#closeHistoryEdit').addEventListener('click',()=>$('#historyEditDialog').close()); $('#cancelHistoryEdit').addEventListener('click',()=>$('#historyEditDialog').close()); $('#historyEditForm').addEventListener('submit',savePastReview);
+$('#closeTopicDialog').addEventListener('click',()=>$('#topicDialog').close()); $('#cancelTopic').addEventListener('click',()=>$('#topicDialog').close()); $('#topicForm').addEventListener('submit',saveTopic);
+$('#closeNoteDialog').addEventListener('click',()=>$('#noteDialog').close()); $('#cancelNote').addEventListener('click',()=>$('#noteDialog').close()); $('#noteForm').addEventListener('submit',saveNote); $('#deleteNoteBtn').addEventListener('click',deleteCurrentNote);
 ['searchInput','filterArea','filterPriority','filterStatus'].forEach(id=>$('#'+id).addEventListener('input',renderErrors)); $('#clearTypeFilter').addEventListener('click',()=>{activeTypeFilter='';renderTypeTabs();renderErrors();});
 ['historySearch','historyArea'].forEach(id=>$('#'+id).addEventListener('input',renderHistory));
 $$('[data-review-filter]').forEach(btn=>btn.addEventListener('click',()=>{activeReviewFilter=btn.dataset.reviewFilter; $$('[data-review-filter]').forEach(b=>b.classList.toggle('active',b===btn)); renderReviews();}));

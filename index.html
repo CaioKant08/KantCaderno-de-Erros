@@ -26,6 +26,9 @@
         <button class="nav-link" data-view="errors" type="button">
           <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4.5h12v15H6z"/><path d="M9 8h6M9 12h6M9 16h4"/></svg></span><span>Meus erros</span>
         </button>
+        <button class="nav-link" data-view="contents" type="button">
+          <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M4.5 6.5h5l1.4 1.8h8.6v9.2a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2z"/><path d="M4.5 10h15"/></svg></span><span>Conteúdos</span>
+        </button>
         <button class="nav-link" data-view="reviews" type="button">
           <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M18.5 8.5A7 7 0 1 0 19 15"/><path d="M18.5 4.5v4h-4"/></svg></span><span>Revisões</span>
         </button>
@@ -114,6 +117,19 @@
 
         <div class="errors-toolbar"><span id="errorCount">0 registros</span><button class="text-link" id="clearTypeFilter" type="button">Mostrar todos os tipos</button></div>
         <div id="errorsGroups" class="error-groups empty-state">Nenhum erro registrado.</div>
+      </section>
+
+      <section class="view" id="view-contents">
+        <div class="view-heading">
+          <div><span class="section-kicker">CONTEÚDOS</span><h1>Seu fichário de revisão.</h1><p>Organize lembretes curtos por área e subtema. A ideia é guardar aquilo que você precisa lembrar, sem transformar isso em uma apostila.</p></div>
+          <div class="view-metric"><small>NOTAS SALVAS</small><strong id="contentNotesCount">0</strong></div>
+        </div>
+
+        <div class="content-area-folders" id="contentAreaFolders"></div>
+
+        <article class="panel content-workspace">
+          <div id="contentWorkspace"></div>
+        </article>
       </section>
 
       <section class="view" id="view-reviews">
@@ -232,6 +248,26 @@
       <label>Resultado<select id="historyReviewResult"><option value="dominei">Consegui sozinho</option><option value="parcial">Consegui parcialmente</option><option value="nao">Ainda erraria</option></select></label>
       <label>O que você lembrou / refez<textarea id="historyReviewRecall" rows="5"></textarea></label>
       <div class="modal-actions simple"><button type="button" class="btn secondary" id="cancelHistoryEdit">Cancelar</button><button type="submit" class="btn primary">Salvar alteração</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="topicDialog">
+    <form method="dialog" id="topicForm" class="modal-card small-modal">
+      <div class="modal-head"><div><span class="panel-kicker">SUBPASTA</span><h2 id="topicDialogTitle">Nova subpasta</h2></div><button type="button" class="close-btn" id="closeTopicDialog">×</button></div>
+      <input type="hidden" id="topicEditId" />
+      <label>Área<input id="topicAreaLabel" disabled /></label>
+      <label>Nome da subpasta<input id="topicTitle" required maxlength="80" placeholder="Ex.: Eletroquímica" /></label>
+      <div class="modal-actions simple"><button type="button" class="btn secondary" id="cancelTopic">Cancelar</button><button type="submit" class="btn primary">Salvar</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="noteDialog">
+    <form method="dialog" id="noteForm" class="modal-card small-modal">
+      <div class="modal-head"><div><span class="panel-kicker">NOTA</span><h2 id="noteDialogTitle">Nova nota</h2></div><button type="button" class="close-btn" id="closeNoteDialog">×</button></div>
+      <input type="hidden" id="noteTopicId" /><input type="hidden" id="noteEditId" />
+      <label>Título <span class="field-optional">(opcional)</span><input id="noteTitle" maxlength="100" placeholder="Ex.: Sinais dos eletrodos" /></label>
+      <label>Anotação<textarea id="noteText" rows="7" required placeholder="Ex.: Cátodo = positivo; ânodo = negativo."></textarea></label>
+      <div class="modal-actions"><button type="button" class="btn danger hidden" id="deleteNoteBtn">Excluir</button><span></span><button type="button" class="btn secondary" id="cancelNote">Cancelar</button><button type="submit" class="btn primary">Salvar nota</button></div>
     </form>
   </dialog>
 
