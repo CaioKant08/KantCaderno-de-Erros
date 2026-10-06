@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="auth-loading" id="authLoading">
+  <div class="auth-loading" id="authLoading" hidden>
     <div class="auth-loading-inner">
       <img src="assets/kant-symbol.png" alt="KANT" />
       <strong>Conectando ao KANT...</strong>
@@ -56,7 +56,7 @@
     </section>
   </div>
 
-  <div class="wrap" id="appWrap" hidden>
+  <div class="wrap" id="appWrap">
     <header class="kant-header">
       <div class="kant-brand" aria-label="KANT Caderno de Erros">
         <div class="kant-brand-symbol"><img src="assets/kant-symbol.png" alt="" /></div>
@@ -342,8 +342,5 @@
   </dialog>
 
   <div id="toast" class="toast"></div>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.57.4/dist/umd/supabase.min.js"></script>
-  <script src="config.js"></script>
-  <script src="app.js"></script>
 </body>
 </html>

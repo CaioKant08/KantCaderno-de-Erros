@@ -1,4 +1,6 @@
-const STORAGE_KEY = 'cadernoErrosENEM_v1';
+const LEGACY_STORAGE_KEY = 'cadernoErrosENEM_v1';
+const USER_STORAGE_PREFIX = 'kantCadernoErros_v4_';
+const CLOUD_TABLE = 'error_notebook_state';
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 let calendarCursor = new Date();
@@ -33,15 +35,28 @@ function defaultContentFolders(){
   const now=Date.now();
   return Object.entries(DEFAULT_CONTENT_TOPICS).flatMap(([area,titles],ai)=>titles.map((title,i)=>({id:`seed-${ai}-${i}`,area,title,notes:[],createdAt:now+i})));
 }
-let data = loadData();
+let currentUser = null;
+let db = null;
+let cloudHydrated = false;
+let cloudSaveTimer = null;
+let loadingUserId = null;
+let data = {errors:[],contentFolders:defaultContentFolders()};
 
-function loadData(){
+function loadLocalDataForUser(userId){
   try{
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY));
+    const parsed = JSON.parse(localStorage.getItem(USER_STORAGE_PREFIX + userId));
     if(parsed && Array.isArray(parsed.errors)) return normalizeData(parsed);
   }catch{}
-  return {errors:[],contentFolders:defaultContentFolders()};
+  return null;
 }
+function loadLegacyData(){
+  try{
+    const parsed = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY));
+    if(parsed && Array.isArray(parsed.errors)) return normalizeData(parsed);
+  }catch{}
+  return null;
+}
+function freshData(){ return {errors:[],contentFolders:defaultContentFolders()}; }
 function normalizeData(obj){
   obj.errors = (obj.errors || []).map(e => ({
     reviews:[], createdDate: isoLocal(new Date(e.createdAt || Date.now())), createdAt:Date.now(), repeatCount:0,
@@ -57,7 +72,29 @@ function normalizedSubject(e){
   if(e.area === 'Linguagens') return 'Linguagens';
   return e.subject || '';
 }
-function saveData(){ try{localStorage.setItem(STORAGE_KEY, JSON.stringify(data));}catch{} renderAll(); }
+function setSyncState(state, message){
+  const status=$('#syncStatus'); if(status) status.textContent=message;
+  const dot=$('#accountSyncDot'), text=$('#accountSyncText');
+  if(dot){ dot.className='sync-dot'+(state==='busy'?' busy':state==='error'?' error':''); }
+  if(text) text.textContent=message;
+}
+function saveData(){
+  if(currentUser){ try{localStorage.setItem(USER_STORAGE_PREFIX + currentUser.id, JSON.stringify(data));}catch{} }
+  renderAll();
+  if(currentUser && db && cloudHydrated) queueCloudSave();
+}
+function queueCloudSave(){
+  clearTimeout(cloudSaveTimer); setSyncState('busy','Salvando alterações...');
+  cloudSaveTimer=setTimeout(saveCloudState,500);
+}
+async function saveCloudState(){
+  if(!currentUser || !db || !cloudHydrated) return;
+  try{
+    const {error}=await db.from(CLOUD_TABLE).upsert({user_id:currentUser.id,payload:data,updated_at:new Date().toISOString()},{onConflict:'user_id'});
+    if(error) throw error;
+    setSyncState('ok','Sincronizado com Supabase');
+  }catch(err){ console.error(err); setSyncState('error','Falha ao sincronizar — dados mantidos neste navegador'); }
+}
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function parseLocal(s){ if(!s) return new Date(); const [y,m,d]=s.split('-').map(Number); return new Date(y,m-1,d); }
 function isoLocal(d=new Date()){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
@@ -131,7 +168,7 @@ function renderErrors(){
   if(!arr.length){ box.className='error-groups empty-state'; box.textContent='Nenhum erro encontrado com esses filtros.'; return; }
   box.className='error-groups'; const order=Object.keys(TYPE_LABELS);
   const groups=order.map(type=>[type,arr.filter(e=>e.errorType===type)]).filter(([,items])=>items.length);
-  box.innerHTML=groups.map(([type,items])=>`<section class="error-group"><div class="error-group-head"><h2>${labelType(type)}</h2><span>${items.length} registro${items.length===1?'':'s'}</span></div><table class="error-table"><thead><tr><th>Conteúdo</th><th>Área</th><th>Prioridade</th><th>Status</th><th>Próxima revisão</th><th></th></tr></thead><tbody>${items.map(e=>`<tr onclick="openEdit('${e.id}')"><td class="cell-title"><strong>${esc(e.content)}</strong><small>${esc(e.sourceName||e.source)}${e.questionNumber?' · Q'+esc(e.questionNumber):''}</small></td><td>${esc(areaMeta(e))}</td><td><span class="badge ${e.priority}">${e.priority}</span></td><td><span class="status-pill ${e.status}">${e.status}</span></td><td>${nextReview(e)?fmtDate(nextReview(e)):'—'}</td><td class="row-actions"><button class="trash-btn" type="button" title="Excluir erro" aria-label="Excluir erro" onclick="event.stopPropagation();deleteErrorById('${e.id}')"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V4.8h6V7M8 10v7M12 10v7M16 10v7M7 7l1 13h8l1-13"/></svg></button></td></tr>`).join('')}</tbody></table></section>`).join('');
+  box.innerHTML=groups.map(([type,items])=>`<section class="error-group"><div class="error-group-head"><h2>${labelType(type)}</h2><span>${items.length} registro${items.length===1?'':'s'}</span></div><table class="error-table"><thead><tr><th>Conteúdo</th><th>Área</th><th>Prioridade</th><th>Status</th><th>Próxima revisão</th><th></th></tr></thead><tbody>${items.map(e=>`<tr onclick="openEdit('${e.id}')"><td class="cell-title"><strong>${esc(e.content)}</strong><small>${esc(e.sourceName||e.source)}${e.questionNumber?' · Q'+esc(e.questionNumber):''}</small></td><td>${esc(areaMeta(e))}</td><td><span class="badge ${e.priority}">${e.priority}</span></td><td><span class="status-pill ${e.status}">${e.status}</span></td><td>${nextReview(e)?fmtDate(nextReview(e)):'—'}</td><td class="row-actions"><button class="delete-row-btn" type="button" title="Excluir erro" onclick="event.stopPropagation();deleteErrorById('${e.id}')"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V4.8h6V7M8 10v7M12 10v7M16 10v7M7 7l1 13h8l1-13"/></svg><span>Excluir</span></button></td></tr>`).join('')}</tbody></table></section>`).join('');
 }
 
 function renderContents(){
@@ -144,12 +181,12 @@ function renderContents(){
   const topic=activeContentTopicId ? data.contentFolders.find(f=>f.id===activeContentTopicId&&f.area===activeContentArea) : null;
   if(topic){
     const notes=[...(topic.notes||[])].sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
-    workspace.innerHTML=`<div class="content-breadcrumb"><button type="button" onclick="backToContentFolders()">${esc(activeContentArea)}</button><span>›</span><strong>${esc(topic.title)}</strong></div><div class="content-topic-head"><div><span class="panel-kicker">SUBTEMA</span><h2>${esc(topic.title)}</h2><p>${notes.length} nota${notes.length===1?'':'s'} salva${notes.length===1?'':'s'}</p></div><div class="content-head-actions"><button class="btn secondary compact-btn" type="button" onclick="editTopic('${topic.id}')">Renomear</button><button class="btn primary compact-btn" type="button" onclick="openNote('${topic.id}')">+ Nova nota</button></div></div>${notes.length?`<div class="notes-grid">${notes.map(n=>`<article class="note-card" onclick="openNote('${topic.id}','${n.id}')"><div class="note-card-top"><strong>${esc(n.title||'Nota')}</strong><span>${new Date(n.updatedAt||n.createdAt).toLocaleDateString('pt-BR')}</span></div><p>${esc(n.text).replace(/\n/g,'<br>')}</p><div class="note-card-foot"><span>Editar nota</span><span>›</span></div></article>`).join('')}</div>`:`<div class="content-empty"><div class="empty-folder-icon">✎</div><h3>Nenhuma nota ainda.</h3><p>Adicione uma regra, fórmula, associação ou lembrete curto que você queira reencontrar depois.</p><button class="btn primary" type="button" onclick="openNote('${topic.id}')">+ Adicionar primeira nota</button></div>`}<div class="topic-danger-zone"><button class="text-link danger-link" type="button" onclick="deleteTopic('${topic.id}')">Excluir esta subpasta</button></div>`;
+    workspace.innerHTML=`<div class="content-breadcrumb"><button type="button" onclick="backToContentFolders()">${esc(activeContentArea)}</button><span>›</span><strong>${esc(topic.title)}</strong></div><div class="content-topic-head"><div><span class="panel-kicker">SUBTEMA</span><h2>${esc(topic.title)}</h2><p>${notes.length} nota${notes.length===1?'':'s'} salva${notes.length===1?'':'s'}</p></div><div class="content-head-actions"><button class="btn secondary compact-btn" type="button" onclick="editTopic('${topic.id}')">Renomear</button><button class="btn primary compact-btn" type="button" onclick="openNote('${topic.id}')">+ Nova nota</button></div></div>${notes.length?`<div class="notes-grid">${notes.map(n=>`<article class="note-card" onclick="openNote('${topic.id}','${n.id}')"><div class="note-card-top"><strong>${esc(n.title||'Nota')}</strong><div class="note-card-top-actions"><span>${new Date(n.updatedAt||n.createdAt).toLocaleDateString('pt-BR')}</span><button class="note-delete-btn" type="button" title="Excluir nota" onclick="event.stopPropagation();deleteNoteById('${topic.id}','${n.id}')"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5h6v2M8 10v7M12 10v7M16 10v7M7 7l1 13h8l1-13"/></svg></button></div></div><p>${esc(n.text).replace(/\n/g,'<br>')}</p><div class="note-card-foot"><span>Editar nota</span><span>›</span></div></article>`).join('')}</div>`:`<div class="content-empty"><div class="empty-folder-icon">✎</div><h3>Nenhuma nota ainda.</h3><p>Adicione uma regra, fórmula, associação ou lembrete curto que você queira reencontrar depois.</p><button class="btn primary" type="button" onclick="openNote('${topic.id}')">+ Adicionar primeira nota</button></div>`}<div class="topic-danger-zone"><button class="btn danger danger-solid" type="button" onclick="deleteTopic('${topic.id}')">Excluir esta subpasta</button></div>`;
     return;
   }
   activeContentTopicId=null;
   const folders=(data.contentFolders||[]).filter(f=>f.area===activeContentArea).sort((a,b)=>a.title.localeCompare(b.title,'pt-BR'));
-  workspace.innerHTML=`<div class="content-topic-head"><div><span class="panel-kicker">PASTA</span><h2>${esc(activeContentArea)}</h2><p>Abra um subtema para consultar ou acrescentar notas.</p></div><button class="btn primary compact-btn" type="button" onclick="openTopicDialog()">+ Nova subpasta</button></div>${folders.length?`<div class="topic-folder-grid">${folders.map(f=>`<button class="topic-folder" type="button" onclick="openContentTopic('${f.id}')"><span class="topic-folder-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7h6l1.5 2H20v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M4 10h16"/></svg></span><span class="topic-folder-copy"><strong>${esc(f.title)}</strong><small>${f.notes?.length||0} nota${(f.notes?.length||0)===1?'':'s'}</small></span><span class="topic-arrow">›</span></button>`).join('')}</div>`:`<div class="content-empty"><div class="empty-folder-icon">＋</div><h3>Crie sua primeira subpasta.</h3><p>Use subtemas específicos, como Eletroquímica, Probabilidade ou Repertório.</p><button class="btn primary" type="button" onclick="openTopicDialog()">+ Nova subpasta</button></div>`}`;
+  workspace.innerHTML=`<div class="content-topic-head"><div><span class="panel-kicker">PASTA</span><h2>${esc(activeContentArea)}</h2><p>Abra um subtema para consultar ou acrescentar notas.</p></div><div class="content-head-actions">${folders.length?`<button class="btn danger compact-btn" type="button" onclick="clearContentArea('${activeContentArea.replace(/'/g,"\'")}')">Limpar esta área</button>`:''}<button class="btn primary compact-btn" type="button" onclick="openTopicDialog()">+ Nova subpasta</button></div></div>${folders.length?`<div class="topic-folder-grid">${folders.map(f=>`<div class="topic-folder-card"><button class="topic-folder" type="button" onclick="openContentTopic('${f.id}')"><span class="topic-folder-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7h6l1.5 2H20v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M4 10h16"/></svg></span><span class="topic-folder-copy"><strong>${esc(f.title)}</strong><small>${f.notes?.length||0} nota${(f.notes?.length||0)===1?'':'s'}</small></span><span class="topic-arrow">›</span></button><button class="folder-delete-btn" type="button" title="Excluir subpasta" onclick="deleteTopic('${f.id}')"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5h6v2M8 10v7M12 10v7M16 10v7M7 7l1 13h8l1-13"/></svg></button></div>`).join('')}</div>`:`<div class="content-empty"><div class="empty-folder-icon">＋</div><h3>Nenhuma subpasta nesta área.</h3><p>Crie apenas os subtemas que realmente quiser usar.</p><button class="btn primary" type="button" onclick="openTopicDialog()">+ Nova subpasta</button></div>`}`;
 }
 
 window.selectContentArea=function(area){ activeContentArea=area; activeContentTopicId=null; renderContents(); };
@@ -162,9 +199,12 @@ window.openTopicDialog=function(id=''){
 window.editTopic=function(id){ openTopicDialog(id); };
 function saveTopic(ev){ ev.preventDefault(); const id=$('#topicEditId').value; const title=$('#topicTitle').value.trim(); if(!title)return; const existing=id?data.contentFolders.find(f=>f.id===id):null; if(existing) existing.title=title; else data.contentFolders.push({id:uid(),area:activeContentArea,title,notes:[],createdAt:Date.now()}); saveData(); $('#topicDialog').close(); toast(existing?'Subpasta renomeada.':'Subpasta criada.'); }
 window.deleteTopic=function(id){ const f=data.contentFolders.find(x=>x.id===id); if(!f)return; const n=f.notes?.length||0; if(confirm(`Excluir a subpasta “${f.title}”${n?` e suas ${n} nota${n===1?'':'s'}`:''}?`)){ data.contentFolders=data.contentFolders.filter(x=>x.id!==id); activeContentTopicId=null; saveData(); toast('Subpasta excluída.'); } };
+window.clearContentArea=function(area){ const folders=data.contentFolders.filter(f=>f.area===area); if(!folders.length)return; const notes=folders.reduce((n,f)=>n+(f.notes?.length||0),0); if(confirm(`Excluir todas as ${folders.length} subpasta(s) de ${area}${notes?` e suas ${notes} nota(s)`:''}?`)){ data.contentFolders=data.contentFolders.filter(f=>f.area!==area); activeContentTopicId=null; saveData(); toast('Área esvaziada.'); } };
+function clearAllContentFolders(){ const folders=data.contentFolders.length; const notes=data.contentFolders.reduce((n,f)=>n+(f.notes?.length||0),0); if(!folders){toast('O fichário já está vazio.');return;} if(confirm(`Excluir TODAS as ${folders} subpastas${notes?` e ${notes} nota(s)`:''}? As cinco áreas principais continuarão disponíveis, mas vazias.`)){ data.contentFolders=[]; activeContentTopicId=null; saveData(); toast('Fichário zerado.'); } }
 window.openNote=function(topicId,noteId=''){ const f=data.contentFolders.find(x=>x.id===topicId); if(!f)return; const n=noteId?f.notes?.find(x=>x.id===noteId):null; $('#noteTopicId').value=topicId; $('#noteEditId').value=n?.id||''; $('#noteTitle').value=n?.title||''; $('#noteText').value=n?.text||''; $('#noteDialogTitle').textContent=n?'Editar nota':'Nova nota'; $('#deleteNoteBtn').classList.toggle('hidden',!n); $('#noteDialog').showModal(); };
 function saveNote(ev){ ev.preventDefault(); const f=data.contentFolders.find(x=>x.id===$('#noteTopicId').value); if(!f)return; const id=$('#noteEditId').value; const existing=id?f.notes.find(n=>n.id===id):null; const now=Date.now(); const note={id:id||uid(),title:$('#noteTitle').value.trim(),text:$('#noteText').value.trim(),createdAt:existing?.createdAt||now,updatedAt:now}; if(existing)Object.assign(existing,note);else f.notes.push(note); saveData(); $('#noteDialog').close(); toast(existing?'Nota atualizada.':'Nota adicionada.'); }
 function deleteCurrentNote(){ const f=data.contentFolders.find(x=>x.id===$('#noteTopicId').value); const id=$('#noteEditId').value; const n=f?.notes?.find(x=>x.id===id); if(!f||!n)return; if(confirm('Excluir esta nota?')){ f.notes=f.notes.filter(x=>x.id!==id); saveData(); $('#noteDialog').close(); toast('Nota excluída.'); } }
+window.deleteNoteById=function(topicId,noteId){ const f=data.contentFolders.find(x=>x.id===topicId); const n=f?.notes?.find(x=>x.id===noteId); if(!f||!n)return; if(confirm(`Excluir a nota “${n.title||'Nota'}”?`)){ f.notes=f.notes.filter(x=>x.id!==noteId); saveData(); toast('Nota excluída.'); } };
 
 function renderReviews(){
   let arr=data.errors.filter(e=>nextReview(e)); const today=isoLocal(new Date());
@@ -183,7 +223,7 @@ function renderHistory(){
   const entries=getHistoryEntries(); const box=$('#historyList');
   if(!entries.length){ box.className='history-list empty-state'; box.textContent='Nenhuma revisão realizada ainda.'; return; }
   const days={}; entries.forEach(x=>{(days[x.review.date] ||= []).push(x)}); box.className='history-list';
-  box.innerHTML=Object.entries(days).map(([date,items])=>`<section class="history-day"><div class="history-day-head">${fmtDate(date,true)}</div>${items.map(x=>`<div class="history-entry"><div><strong>${esc(x.error.content)}</strong><small>${esc(areaMeta(x.error))} · ${labelType(x.error.errorType)}</small></div><div class="hide-tablet"><small>LEMBROU / REFEZ</small><span>${esc(x.review.recall||'Sem anotação')}</span></div><div class="history-result ${x.review.result}">${resultLabel(x.review.result)}</div><div class="history-actions"><button class="tiny-btn primaryish" onclick="openReview('${x.error.id}')">Refazer</button><button class="tiny-btn" onclick="editPastReview('${x.error.id}',${x.index})">Corrigir</button></div></div>`).join('')}</section>`).join('');
+  box.innerHTML=Object.entries(days).map(([date,items])=>`<section class="history-day"><div class="history-day-head">${fmtDate(date,true)}</div>${items.map(x=>`<div class="history-entry"><div><strong>${esc(x.error.content)}</strong><small>${esc(areaMeta(x.error))} · ${labelType(x.error.errorType)}</small></div><div class="hide-tablet"><small>LEMBROU / REFEZ</small><span>${esc(x.review.recall||'Sem anotação')}</span></div><div class="history-result ${x.review.result}">${resultLabel(x.review.result)}</div><div class="history-actions"><button class="tiny-btn primaryish" onclick="openReview('${x.error.id}')">Refazer</button><button class="tiny-btn" onclick="editPastReview('${x.error.id}',${x.index})">Corrigir</button><button class="history-delete-btn" type="button" title="Excluir esta revisão" onclick="deletePastReview('${x.error.id}',${x.index})"><svg viewBox="0 0 24 24" fill="none"><path d="M5 7h14M9 7V5h6v2M8 10v7M12 10v7M16 10v7M7 7l1 13h8l1-13"/></svg><span>Excluir</span></button></div></div>`).join('')}</section>`).join('');
 }
 function renderCalendar(){
   const y=calendarCursor.getFullYear(),m=calendarCursor.getMonth(); $('#calendarTitle').textContent=new Date(y,m,1).toLocaleDateString('pt-BR',{month:'long',year:'numeric'}); const first=new Date(y,m,1); const start=new Date(y,m,1-first.getDay()); const today=isoLocal(new Date()); let html='';
@@ -225,7 +265,100 @@ function completeReview(ev){
 function revealLesson(){ const e=data.errors.find(x=>x.id===$('#reviewId').value); if(!e)return; const box=$('#lessonReveal'); box.innerHTML=`<strong>O que eu precisava saber ou fazer</strong><br>${esc(e.lesson||'Sem anotação.')}<br><br><strong>Resumo de bolso</strong><br>${esc(e.flashNote||'Sem resumo.')}`; box.classList.remove('hidden'); }
 
 window.editPastReview=function(errorId,index){ const e=data.errors.find(x=>x.id===errorId); const r=e?.reviews?.[index]; if(!e||!r)return; $('#historyErrorId').value=errorId; $('#historyReviewIndex').value=index; $('#historyReviewDate').value=r.date; $('#historyReviewResult').value=r.result; $('#historyReviewRecall').value=r.recall||''; $('#historyEditDialog').showModal(); }
-function savePastReview(ev){ ev.preventDefault(); const e=data.errors.find(x=>x.id===$('#historyErrorId').value); const index=Number($('#historyReviewIndex').value); if(!e||!e.reviews?.[index])return; e.reviews[index]={...e.reviews[index],date:$('#historyReviewDate').value,result:$('#historyReviewResult').value,recall:$('#historyReviewRecall').value.trim()}; e.reviews.sort((a,b)=>a.date.localeCompare(b.date)); const latest=e.reviews[e.reviews.length-1]; if(latest?.result==='dominei'&&e.reviews.filter(r=>r.result==='dominei').length>=2){e.status='dominado';e.wouldMissTomorrow=false;} else {e.status='revisando';e.wouldMissTomorrow=latest?.result!=='dominei';} saveData(); $('#historyEditDialog').close(); toast('Revisão passada atualizada.'); }
+function recomputeReviewStatus(e){
+  const reviews=e.reviews||[];
+  if(!reviews.length){ if(e.status==='revisando'||e.status==='dominado') e.status='novo'; e.wouldMissTomorrow=true; return; }
+  const latest=reviews[reviews.length-1];
+  if(latest?.result==='dominei'&&reviews.filter(r=>r.result==='dominei').length>=2){e.status='dominado';e.wouldMissTomorrow=false;}
+  else {e.status='revisando';e.wouldMissTomorrow=latest?.result!=='dominei';}
+}
+function savePastReview(ev){ ev.preventDefault(); const e=data.errors.find(x=>x.id===$('#historyErrorId').value); const index=Number($('#historyReviewIndex').value); if(!e||!e.reviews?.[index])return; e.reviews[index]={...e.reviews[index],date:$('#historyReviewDate').value,result:$('#historyReviewResult').value,recall:$('#historyReviewRecall').value.trim()}; e.reviews.sort((a,b)=>a.date.localeCompare(b.date)); recomputeReviewStatus(e); saveData(); $('#historyEditDialog').close(); toast('Revisão passada atualizada.'); }
+window.deletePastReview=function(errorId,index){ const e=data.errors.find(x=>x.id===errorId); const r=e?.reviews?.[index]; if(!e||!r)return; if(confirm(`Excluir a revisão de ${fmtDate(r.date)}? O erro continuará no caderno.`)){ e.reviews.splice(index,1); recomputeReviewStatus(e); saveData(); toast('Revisão excluída do histórico.'); } };
+function clearAllHistory(){ const total=data.errors.reduce((n,e)=>n+(e.reviews?.length||0),0); if(!total){toast('O histórico já está vazio.');return;} if(confirm(`Excluir as ${total} revisões do histórico? Os erros não serão apagados, mas a sequência de revisão será reiniciada.`)){ data.errors.forEach(e=>{e.reviews=[]; if(e.status==='revisando'||e.status==='dominado')e.status='novo'; e.wouldMissTomorrow=true;}); saveData(); toast('Histórico excluído.'); } }
+
+function friendlyAuthError(message=''){
+  const m=message.toLowerCase();
+  if(m.includes('invalid login credentials')) return 'E-mail ou senha incorretos.';
+  if(m.includes('email not confirmed')) return 'Confirme seu e-mail antes de entrar.';
+  if(m.includes('user already registered')) return 'Já existe uma conta com este e-mail.';
+  if(m.includes('password')) return 'A senha precisa ter pelo menos 8 caracteres.';
+  return message || 'Não foi possível concluir a autenticação.';
+}
+function showAuthMessage(message,type='error'){
+  const el=$('#authMessage'); el.textContent=message; el.className='auth-message show '+type;
+}
+function clearAuthMessage(){ const el=$('#authMessage'); el.textContent=''; el.className='auth-message'; }
+function setAuthTab(mode){
+  $('#tabLogin').classList.toggle('active',mode==='login'); $('#tabSignup').classList.toggle('active',mode==='signup');
+  $('#loginForm').hidden=mode!=='login'; $('#signupForm').hidden=mode!=='signup'; clearAuthMessage();
+}
+function hasMeaningfulLegacy(obj){
+  if(!obj) return false;
+  if((obj.errors||[]).length) return true;
+  if((obj.contentFolders||[]).some(f=>(f.notes||[]).length)) return true;
+  const defaults=defaultContentFolders().map(f=>`${f.area}|${f.title}`).sort().join('::');
+  const current=(obj.contentFolders||[]).map(f=>`${f.area}|${f.title}`).sort().join('::');
+  return current!==defaults;
+}
+function updateProfileUI(user){
+  const name=(user.user_metadata?.display_name||user.email?.split('@')[0]||'Usuário').trim();
+  const initial=(name[0]||'K').toUpperCase();
+  $('#profileName').textContent=name; $('#profileAvatar').textContent=initial; $('#accountAvatar').textContent=initial; $('#accountName').textContent=name; $('#accountEmail').textContent=user.email||'—';
+}
+async function loadUserState(user){
+  cloudHydrated=false; setSyncState('busy','Carregando seu caderno...');
+  const local=loadLocalDataForUser(user.id);
+  try{
+    const {data:row,error}=await db.from(CLOUD_TABLE).select('payload,updated_at').eq('user_id',user.id).maybeSingle();
+    if(error) throw error;
+    if(row?.payload){
+      data=normalizeData(row.payload);
+    }else{
+      let initial=local;
+      const migrationKey=LEGACY_STORAGE_KEY+'_migration_done';
+      if(!initial && !localStorage.getItem(migrationKey)){
+        const legacy=loadLegacyData();
+        if(hasMeaningfulLegacy(legacy)){
+          const importOld=confirm('Encontrei dados da versão anterior neste navegador. Deseja importar esses erros, pastas e notas para esta conta?');
+          if(importOld) initial=legacy;
+        }
+        localStorage.setItem(migrationKey,user.id);
+      }
+      data=normalizeData(initial||freshData());
+      const {error:insertError}=await db.from(CLOUD_TABLE).upsert({user_id:user.id,payload:data,updated_at:new Date().toISOString()},{onConflict:'user_id'});
+      if(insertError) throw insertError;
+    }
+    try{localStorage.setItem(USER_STORAGE_PREFIX+user.id,JSON.stringify(data));}catch{}
+    cloudHydrated=true; setSyncState('ok','Sincronizado com Supabase'); renderAll();
+  }catch(err){
+    console.error(err); data=normalizeData(local||freshData()); cloudHydrated=true; renderAll();
+    setSyncState('error','Supabase ainda não preparado — usando cópia local');
+  }
+}
+async function enterApp(user){
+  if(loadingUserId===user.id) return;
+  loadingUserId=user.id;
+  try{ currentUser=user; updateProfileUI(user); $('#authGate').hidden=true; $('#appWrap').hidden=false; $('#authLoading').hidden=true; await loadUserState(user); }
+  finally{ loadingUserId=null; }
+}
+function showAuthGate(){
+  currentUser=null; cloudHydrated=false; $('#appWrap').hidden=true; $('#authLoading').hidden=true; $('#authGate').hidden=false; setAuthTab('login');
+}
+async function initAuth(){
+  const cfg=window.KANT_CONFIG||{};
+  if(!window.supabase?.createClient || !cfg.SUPABASE_URL || !cfg.SUPABASE_PUBLISHABLE_KEY){
+    $('#authLoading').hidden=true; $('#authGate').hidden=false; showAuthMessage('A conexão com o Supabase não foi configurada.','error'); return;
+  }
+  db=window.supabase.createClient(cfg.SUPABASE_URL,cfg.SUPABASE_PUBLISHABLE_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+  db.auth.onAuthStateChange((event,session)=>{
+    if(event==='SIGNED_OUT'){ showAuthGate(); return; }
+    if(session?.user && (!currentUser || currentUser.id!==session.user.id)) setTimeout(()=>enterApp(session.user),0);
+  });
+  try{
+    const {data:{session},error}=await db.auth.getSession(); if(error) throw error;
+    if(session?.user) await enterApp(session.user); else showAuthGate();
+  }catch(err){ console.error(err); showAuthGate(); showAuthMessage('Não foi possível conectar ao Supabase agora.','error'); }
+}
 
 function switchView(v){ $$('.nav-link').forEach(b=>b.classList.toggle('active',b.dataset.view===v)); $$('.view').forEach(x=>x.classList.remove('active')); $('#view-'+v).classList.add('active'); window.scrollTo({top:0,behavior:'smooth'}); }
 $$('.nav-link').forEach(btn=>btn.addEventListener('click',()=>switchView(btn.dataset.view))); $$('[data-go]').forEach(btn=>btn.addEventListener('click',()=>switchView(btn.dataset.go)));
@@ -234,6 +367,11 @@ $('#closeReview').addEventListener('click',()=>$('#reviewDialog').close()); $('#
 $('#closeHistoryEdit').addEventListener('click',()=>$('#historyEditDialog').close()); $('#cancelHistoryEdit').addEventListener('click',()=>$('#historyEditDialog').close()); $('#historyEditForm').addEventListener('submit',savePastReview);
 $('#closeTopicDialog').addEventListener('click',()=>$('#topicDialog').close()); $('#cancelTopic').addEventListener('click',()=>$('#topicDialog').close()); $('#topicForm').addEventListener('submit',saveTopic);
 $('#closeNoteDialog').addEventListener('click',()=>$('#noteDialog').close()); $('#cancelNote').addEventListener('click',()=>$('#noteDialog').close()); $('#noteForm').addEventListener('submit',saveNote); $('#deleteNoteBtn').addEventListener('click',deleteCurrentNote);
+$('#clearContentBtn').addEventListener('click',clearAllContentFolders); $('#clearHistoryBtn').addEventListener('click',clearAllHistory);
+$('#profileBtn').addEventListener('click',()=>$('#accountDialog').showModal()); $('#closeAccountDialog').addEventListener('click',()=>$('#accountDialog').close()); $('#closeAccountBtn').addEventListener('click',()=>$('#accountDialog').close()); $('#logoutBtn').addEventListener('click',async()=>{ $('#accountDialog').close(); if(db) await db.auth.signOut(); });
+$('#tabLogin').addEventListener('click',()=>setAuthTab('login')); $('#tabSignup').addEventListener('click',()=>setAuthTab('signup'));
+$('#loginForm').addEventListener('submit',async ev=>{ ev.preventDefault(); clearAuthMessage(); const btn=$('#loginSubmit'); btn.disabled=true; btn.textContent='Entrando...'; try{ const {data:authData,error}=await db.auth.signInWithPassword({email:$('#loginEmail').value.trim(),password:$('#loginPassword').value}); if(error)throw error; if(authData.user) await enterApp(authData.user); }catch(err){showAuthMessage(friendlyAuthError(err.message));}finally{btn.disabled=false;btn.textContent='Entrar no KANT';} });
+$('#signupForm').addEventListener('submit',async ev=>{ ev.preventDefault(); clearAuthMessage(); const btn=$('#signupSubmit'); btn.disabled=true; btn.textContent='Criando conta...'; try{ const redirect=location.protocol.startsWith('http')?location.origin+location.pathname:undefined; const options={data:{display_name:$('#signupName').value.trim()}}; if(redirect) options.emailRedirectTo=redirect; const {data:authData,error}=await db.auth.signUp({email:$('#signupEmail').value.trim(),password:$('#signupPassword').value,options}); if(error)throw error; if(authData.session&&authData.user) await enterApp(authData.user); else {showAuthMessage('Conta criada. Confira seu e-mail para confirmar o cadastro e depois faça login.','success'); $('#signupForm').reset();} }catch(err){showAuthMessage(friendlyAuthError(err.message));}finally{btn.disabled=false;btn.textContent='Criar minha conta';} });
 ['searchInput','filterArea','filterPriority','filterStatus'].forEach(id=>$('#'+id).addEventListener('input',renderErrors)); $('#clearTypeFilter').addEventListener('click',()=>{activeTypeFilter='';renderTypeTabs();renderErrors();});
 ['historySearch','historyArea'].forEach(id=>$('#'+id).addEventListener('input',renderHistory));
 $$('[data-review-filter]').forEach(btn=>btn.addEventListener('click',()=>{activeReviewFilter=btn.dataset.reviewFilter; $$('[data-review-filter]').forEach(b=>b.classList.toggle('active',b===btn)); renderReviews();}));
@@ -241,4 +379,4 @@ $('#prevMonth').addEventListener('click',()=>{calendarCursor.setMonth(calendarCu
 $('#exportBtn').addEventListener('click',()=>{const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='kant-caderno-erros-backup.json';a.click();URL.revokeObjectURL(a.href);});
 $('#importInput').addEventListener('change',ev=>{const f=ev.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const obj=JSON.parse(r.result);if(!Array.isArray(obj.errors))throw new Error();data=normalizeData(obj);saveData();toast('Backup importado.');}catch{alert('Arquivo de backup inválido.');}};r.readAsText(f);});
 $('#todayLabel').textContent=new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long'});
-renderAll();
+initAuth();
